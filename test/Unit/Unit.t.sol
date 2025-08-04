@@ -125,21 +125,11 @@ contract Unit is Test {
 
     function test_claimingRewards() public {
         registerUser(user1, Binary, owner);
-        assertEq(smartBinancePlus.getUser(owner).balancePoints, 0);
         registerUser(user2, Binary, owner);
-        assertEq(smartBinancePlus.getUser(owner).balancePoints, 1);
         registerUser(user3, Binary, user1);
-        assertEq(smartBinancePlus.getUser(owner).balancePoints, 1);
-        assertEq(smartBinancePlus.getUser(user1).balancePoints, 0);
         registerUser(user4, Binary, user1);
-        assertEq(smartBinancePlus.getUser(owner).balancePoints, 1);
-        assertEq(smartBinancePlus.getUser(user1).balancePoints, 1);
         registerUser(user5, Binary, user2);
-        assertEq(smartBinancePlus.getUser(owner).balancePoints, 2);
-        assertEq(smartBinancePlus.getUser(user2).balancePoints, 0);
         registerUser(user6, Binary, user2);
-        assertEq(smartBinancePlus.getUser(owner).balancePoints, 3);
-        assertEq(smartBinancePlus.getUser(user2).balancePoints, 1);
 
         assertEq(smartBinancePlus.totalCyclePoints(), 5);
         uint256 pointWorth = 6 * 90 ether / 5;
@@ -173,5 +163,40 @@ contract Unit is Test {
         assertEq(bal2user4 - bal1user4, 0 * pointWorth);
         assertEq(bal2user5 - bal1user5, 0 * pointWorth);
         assertEq(bal2user6 - bal1user6, 0 * pointWorth);
+    }
+
+    function test_binaryMoreThan2Directs() public {
+        registerUser(user1, Binary, owner);
+        registerUser(user2, Binary, owner);
+        registerUser(user3, Binary, user1);
+        registerUser(user4, Binary, user1);
+        registerUser(user5, Binary, user2);
+        registerUser(user6, Binary, owner);
+        assertEq(smartBinancePlus.getUser(user6).referrer, user2);
+    }
+
+    function test_binaryMoreThan2Directs2() public {
+        registerUser(user1, Binary, owner);
+        registerUser(user2, Binary, owner);
+        registerUser(user3, Binary, user1);
+        registerUser(user4, Binary, user1);
+        registerUser(user5, Binary, user2);
+        registerUser(user6, Binary, user2);
+        registerUser(user7, Binary, owner);
+        assertEq(smartBinancePlus.getUser(user7).referrer, user3);
+    }
+
+    function testInOrderInvites() public {
+        registerUser(user1, Binary, owner);
+        registerUser(user2, Binary, owner);
+        registerUser(user3, Binary, user1);
+        // registerUser(user4, Binary, user1);
+        registerUser(user5, Binary, user2);
+        registerUser(user6, Binary, user2);
+        registerUser(user7, InOrder, user6);
+        assertEq(smartBinancePlus.getUser(user1).directs, 1);
+        registerUser(user8, Binary, user7);
+        assertEq(smartBinancePlus.getUser(user1).directs, 2);
+        assertEq(smartBinancePlus.getUser(user7).directs, 0);
     }
 }

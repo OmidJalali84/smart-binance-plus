@@ -3,6 +3,7 @@ pragma solidity 0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {console} from "forge-std/console.sol";
 
 contract SmartBinancePlus is Ownable {
     enum Plan {
@@ -79,12 +80,12 @@ contract SmartBinancePlus is Ownable {
         dai.transfer(owner(), OWNER_SHARE);
         totalCyclePoolAmount += POOL_SHARE;
 
-        if (plan == Plan.Binary) {
+        if (userInfo[referrer].plan == Plan.Binary) {
             // Binary plan: user connects directly to their referrer
             _connectToBinaryReferrer(referrer);
         } else {
             // InOrder plan: find empty spot using BFS
-            address emptySpot = _findEmptySpotBFS(referrer);
+            address emptySpot = _findEmptySpotBFS(ROOT);
             require(emptySpot != address(0), "No empty spot found");
             _connectToInOrderSpot(emptySpot);
         }
@@ -135,7 +136,7 @@ contract SmartBinancePlus is Ownable {
         uint256 front = 0;
         uint256 rear = 0;
 
-        // Add starting node to queue
+        // Always start from ROOT to find the first available empty spot in the entire tree
         queue[rear] = startNode;
         rear++;
 
@@ -186,16 +187,6 @@ contract SmartBinancePlus is Ownable {
     //     // Return false if the spot is not valid according to your rules
     //     return true;
     // }
-
-    // Helper function to get user tree structure (for testing/debugging)
-    function getUserTree(address user)
-        external
-        view
-        returns (address referrer, address left, address right, uint256 directs, bool active)
-    {
-        User memory userData = userInfo[user];
-        return (userData.referrer, userData.left, userData.right, userData.directs, userData.active);
-    }
 
     // Remove getCurrentCycle, calculateCycleRewards, getCycleInfo, and any other cycle-related functions
 
