@@ -28,6 +28,7 @@ contract SmartBinancePlus is Ownable {
 
     mapping(address => User) private userInfo;
     address[] public allUsers;
+    address[] public pureBinaryUsers;
     // Remove all cycle-related mappings and variables
     // mapping(uint256 => uint256) public cycleRewards;
     // mapping(uint256 => uint256) public cycleTotalPoints;
@@ -81,7 +82,9 @@ contract SmartBinancePlus is Ownable {
         totalCyclePoolAmount += POOL_SHARE;
 
         if (userInfo[referrer].plan == Plan.Binary) {
-            // Binary plan: user connects directly to their referrer
+            if (userInfo[referrer].left != address(0) && userInfo[userInfo[referrer].left].plan == Plan.InOrder) {
+                require(plan == Plan.Binary, "Referrer is in binary plan and has an in-order hand");
+            }
             _connectToBinaryReferrer(referrer);
         } else {
             // InOrder plan: find empty spot using BFS
@@ -96,6 +99,20 @@ contract SmartBinancePlus is Ownable {
         allUsers.push(msg.sender);
 
         _updateVolumeAndBalancePoints(msg.sender);
+        // After connecting, check if referrer now qualifies as pure binary
+        if (_isPureBinaryUser(referrer)) {
+            // Only add if not already present
+            bool alreadyAdded = false;
+            for (uint256 i = 0; i < pureBinaryUsers.length; i++) {
+                if (pureBinaryUsers[i] == referrer) {
+                    alreadyAdded = true;
+                    break;
+                }
+            }
+            if (!alreadyAdded) {
+                pureBinaryUsers.push(referrer);
+            }
+        }
     }
 
     function _connectToBinaryReferrer(address referrer) internal {
@@ -152,17 +169,16 @@ contract SmartBinancePlus is Ownable {
 
             // Check if current node has empty spots (left first, then right)
             if (userInfo[currentNode].left == address(0)) {
-                // TODO: Add exception checks here
-                // if (_isValidSpot(currentNode, true)) {
                 return currentNode;
-                // }
             }
 
             if (userInfo[currentNode].right == address(0)) {
-                // TODO: Add exception checks here
-                // if (_isValidSpot(currentNode, false)) {
-                return currentNode;
-                // }
+                if (
+                    userInfo[currentNode].plan == Plan.InOrder
+                        || userInfo[userInfo[currentNode].left].plan == Plan.Binary
+                ) {
+                    return currentNode;
+                }
             }
 
             // Add children to queue for next level processing
@@ -180,13 +196,6 @@ contract SmartBinancePlus is Ownable {
         // No empty spots found
         return address(0);
     }
-
-    // TODO: Implement this function to add your exception logic
-    // function _isValidSpot(address parentNode, bool isLeftSpot) internal view returns (bool) {
-    //     // Add your exception logic here
-    //     // Return false if the spot is not valid according to your rules
-    //     return true;
-    // }
 
     // Remove getCurrentCycle, calculateCycleRewards, getCycleInfo, and any other cycle-related functions
 
@@ -229,19 +238,47 @@ contract SmartBinancePlus is Ownable {
             block.timestamp >= lastDistributionTime + REWARD_CYCLE_DURATION, "Not enough time since last distribution"
         );
         require(totalCyclePoints > 0, "No points to distribute");
+        uint256 remainingAmounts;
         for (uint256 i = 0; i < allUsers.length; i++) {
             address userAddr = allUsers[i];
             User storage user = userInfo[userAddr];
             if (user.active) {
                 if (user.balancePoints > 0) {
-                    uint256 reward = user.balancePoints * getPointWorth();
-                    user.totalEarnings += reward;
-                    dai.transfer(userAddr, reward);
+                    uint256 pointsToSend = user.balancePoints >= 10 ? 10 : user.balancePoints;
+                    uint256 diffPoints = user.balancePoints - pointsToSend;
+                    remainingAmounts += diffPoints * getPointWorth();
+                    uint256 pureReward = pointsToSend * getPointWorth();
+                    uint256 rewardToSend;
+                    if (userInfo[user.left].plan == Plan.Binary && userInfo[user.right].plan == Plan.Binary) {
+                        rewardToSend = pureReward;
+                    } else if (userInfo[user.left].plan == Plan.InOrder && userInfo[user.right].plan == Plan.InOrder) {
+                        rewardToSend = pureReward * 50 / 100;
+                    } else {
+                        rewardToSend = pureReward * 75 / 100;
+                    }
+                    user.totalEarnings += rewardToSend;
+                    dai.transfer(userAddr, rewardToSend);
+
+                    remainingAmounts += pureReward - rewardToSend;
                 }
                 uint256 weakLeg =
                     user.currentLeftVolume < user.currentRightVolume ? user.currentLeftVolume : user.currentRightVolume;
                 user.currentLeftVolume -= weakLeg;
                 user.currentRightVolume -= weakLeg;
+                user.balancePoints = 0;
+            }
+        }
+        // Distribute remainingAmounts among all pureBinaryUsers
+        uint256 numPureBinary = pureBinaryUsers.length;
+        if (remainingAmounts > 0 && numPureBinary > 0) {
+            uint256 share = remainingAmounts / numPureBinary;
+            console.log(share);
+            for (uint256 i = 0; i < numPureBinary; i++) {
+                address userAddr = pureBinaryUsers[i];
+                if (userInfo[userAddr].active) {
+                    userInfo[userAddr].totalEarnings += share;
+                    dai.transfer(userAddr, share);
+                }
             }
         }
         totalCyclePoolAmount = 0;
@@ -255,5 +292,13 @@ contract SmartBinancePlus is Ownable {
 
     function getPointWorth() public view returns (uint256) {
         return totalCyclePoolAmount / totalCyclePoints;
+    }
+
+    function _isPureBinaryUser(address user) internal view returns (bool) {
+        if (userInfo[user].plan != Plan.Binary) return false;
+        address left = userInfo[user].left;
+        address right = userInfo[user].right;
+        if (left == address(0) || right == address(0)) return false;
+        return userInfo[left].plan == Plan.Binary && userInfo[right].plan == Plan.Binary;
     }
 }

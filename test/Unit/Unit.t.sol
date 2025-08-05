@@ -3,6 +3,7 @@ pragma solidity 0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {SmartBinancePlus} from "../../src/SmartBinancePlus.sol";
+import {console} from "forge-std/console.sol";
 import {DAI} from "../Mocks/DAI.sol";
 
 contract Unit is Test {
@@ -186,7 +187,7 @@ contract Unit is Test {
         assertEq(smartBinancePlus.getUser(user7).referrer, user3);
     }
 
-    function testInOrderInvites() public {
+    function test_inOrderInvites() public {
         registerUser(user1, Binary, owner);
         registerUser(user2, Binary, owner);
         registerUser(user3, Binary, user1);
@@ -198,5 +199,50 @@ contract Unit is Test {
         registerUser(user8, Binary, user7);
         assertEq(smartBinancePlus.getUser(user1).directs, 2);
         assertEq(smartBinancePlus.getUser(user7).directs, 0);
+    }
+
+    function test_rewardTypes() public {
+        registerUser(user1, Binary, owner);
+        registerUser(user2, Binary, owner);
+
+        registerUser(user3, InOrder, user1);
+        fundDai(user4);
+        vm.prank(user4);
+        vm.expectRevert("Referrer is in binary plan and has an in-order hand");
+        smartBinancePlus.register(InOrder, user1);
+        registerUser(user4, Binary, user1);
+
+        registerUser(user5, Binary, user2);
+        registerUser(user6, Binary, user2);
+        registerUser(user7, InOrder, user3);
+        registerUser(user8, InOrder, user3);
+
+        assertEq(smartBinancePlus.getUser(owner).balancePoints, 3);
+        assertEq(smartBinancePlus.getUser(user1).balancePoints, 1);
+        assertEq(smartBinancePlus.getUser(user2).balancePoints, 1);
+        assertEq(smartBinancePlus.getUser(user3).balancePoints, 1);
+
+        uint256 pointWorth = smartBinancePlus.getPointWorth();
+
+        uint256 bal1Owner = dai.balanceOf(owner);
+        uint256 bal1User1 = dai.balanceOf(user1);
+        uint256 bal1User2 = dai.balanceOf(user2);
+        uint256 bal1User3 = dai.balanceOf(user3);
+
+        vm.warp(2 hours);
+        smartBinancePlus.distributeRewards();
+
+        uint256 bal2Owner = dai.balanceOf(owner);
+        uint256 bal2User1 = dai.balanceOf(user1);
+        uint256 bal2User2 = dai.balanceOf(user2);
+        uint256 bal2User3 = dai.balanceOf(user3);
+
+        assertEq(bal2User1 - bal1User1, pointWorth * 75 / 100);
+        assertEq(bal2User3 - bal1User3, pointWorth * 50 / 100);
+
+        uint256 remainings = (pointWorth * 25 / 100) + (pointWorth * 50 / 100);
+        uint256 share = remainings / 2;
+        assertEq(bal2Owner - bal1Owner, (pointWorth * 3) + share);
+        assertEq(bal2User2 - bal1User2, pointWorth + share);
     }
 }
