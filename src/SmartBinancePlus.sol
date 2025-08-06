@@ -3,6 +3,7 @@ pragma solidity 0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {DrCat} from "./DrCat.sol";
 import {console} from "forge-std/console.sol";
 
 contract SmartBinancePlus is Ownable {
@@ -29,23 +30,29 @@ contract SmartBinancePlus is Ownable {
     mapping(address => User) private userInfo;
     address[] public allUsers;
     address[] public pureBinaryUsers;
-    // Remove all cycle-related mappings and variables
-    // mapping(uint256 => uint256) public cycleRewards;
-    // mapping(uint256 => uint256) public cycleTotalPoints;
-    // mapping(uint256 => uint256) public cyclePointValue;
-    // mapping(uint256 => bool) public cycleCalculated;
+
+    address public admin;
 
     uint256 public constant ENTRANCE = 100 ether;
     uint256 public constant OWNER_SHARE = 10 ether;
     uint256 public constant POOL_SHARE = 90 ether;
 
-    uint256 public constant REWARD_CYCLE_DURATION = 1 hours;
+    uint256 public REWARD_CYCLE_DURATION = 1 hours;
     address public immutable ROOT;
     IERC20 public dai;
     uint256 public contractStartTime;
     uint256 public totalCyclePoolAmount;
     uint256 public totalCyclePoints;
     uint256 public lastDistributionTime;
+
+    uint256 public cycleTimeChangeRequestTime; //@
+    address public cycleTimeChangeRequester; //@
+    uint256 public withdrawRequestTime;
+    address public withdrawRequester;
+
+    DrCat public immutable drCat;
+
+    string public ownerMessage;
 
     modifier preChecks(Plan plan, address referrer) {
         require(plan == Plan.Binary || plan == Plan.InOrder, "Invalid plan");
@@ -54,7 +61,13 @@ contract SmartBinancePlus is Ownable {
         _;
     }
 
-    constructor(address initialOwner, address _dai, address _root) Ownable(initialOwner) {
+    modifier onlyAdmin() {
+        require(msg.sender == admin, "Only admin can call this function");
+        _;
+    }
+
+    constructor(address _initialOwner, address _initialAdmin, address _dai, address _root) Ownable(_initialOwner) {
+        admin = _initialAdmin;
         dai = IERC20(_dai);
         ROOT = _root;
         contractStartTime = block.timestamp;
@@ -74,6 +87,38 @@ contract SmartBinancePlus is Ownable {
             active: true
         });
         allUsers.push(ROOT);
+
+        drCat = new DrCat(_initialOwner);
+    }
+
+    function changeRewardCycle(uint256 newCycle) external {
+        require(msg.sender == owner() || msg.sender == admin, "Only owner or admin can call this function");
+        if (cycleTimeChangeRequestTime + 1 hours > block.timestamp) {
+            require(cycleTimeChangeRequester != msg.sender, "Request should be accepted from other author");
+            REWARD_CYCLE_DURATION = newCycle;
+            cycleTimeChangeRequester = address(0);
+            cycleTimeChangeRequestTime = 0;
+        } else {
+            cycleTimeChangeRequester = msg.sender;
+            cycleTimeChangeRequestTime = block.timestamp;
+        }
+    }
+
+    function withdrawEmergancy() external {
+        require(msg.sender == owner() || msg.sender == admin, "Only owner or admin can call this function");
+        if (withdrawRequestTime + 1 hours > block.timestamp) {
+            require(withdrawRequester != msg.sender, "Request should be accepted from other author");
+            dai.transfer(owner(), dai.balanceOf(address(this)));
+            withdrawRequester = address(0);
+            withdrawRequestTime = 0;
+        } else {
+            withdrawRequester = msg.sender;
+            withdrawRequestTime = block.timestamp;
+        }
+    }
+
+    function sendNewMessage(string memory newMessage) external {
+        ownerMessage = newMessage;
     }
 
     function register(Plan plan, address referrer) external preChecks(plan, referrer) {
@@ -97,6 +142,7 @@ contract SmartBinancePlus is Ownable {
         userInfo[msg.sender].active = true;
         userInfo[msg.sender].plan = plan;
         allUsers.push(msg.sender);
+        if (drCat.balanceOf(address(drCat)) >= 500e18) drCat.transferFrom(address(drCat), msg.sender, 500e18);
 
         _updateVolumeAndBalancePoints(msg.sender);
         // After connecting, check if referrer now qualifies as pure binary
@@ -249,10 +295,10 @@ contract SmartBinancePlus is Ownable {
                     remainingAmounts += diffPoints * getPointWorth();
                     uint256 pureReward = pointsToSend * getPointWorth();
                     uint256 rewardToSend;
-                    if (userInfo[user.left].plan == Plan.Binary && userInfo[user.right].plan == Plan.Binary) {
-                        rewardToSend = pureReward;
-                    } else if (userInfo[user.left].plan == Plan.InOrder && userInfo[user.right].plan == Plan.InOrder) {
+                    if (user.plan == Plan.InOrder) {
                         rewardToSend = pureReward * 50 / 100;
+                    } else if (userInfo[user.left].plan == Plan.Binary && userInfo[user.right].plan == Plan.Binary) {
+                        rewardToSend = pureReward;
                     } else {
                         rewardToSend = pureReward * 75 / 100;
                     }

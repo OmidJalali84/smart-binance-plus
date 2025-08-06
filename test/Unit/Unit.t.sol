@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {SmartBinancePlus} from "../../src/SmartBinancePlus.sol";
 import {console} from "forge-std/console.sol";
 import {DAI} from "../Mocks/DAI.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract Unit is Test {
     SmartBinancePlus public smartBinancePlus;
@@ -15,6 +16,9 @@ contract Unit is Test {
 
     address daiHolder = address(100);
     address owner = address(101);
+    address admin = address(102);
+    address root = address(103);
+
     address user1 = address(1);
     address user2 = address(2);
     address user3 = address(3);
@@ -26,7 +30,10 @@ contract Unit is Test {
 
     function setUp() public {
         dai = new DAI(daiHolder, 1e30);
-        smartBinancePlus = new SmartBinancePlus(address(this), address(dai), owner);
+        smartBinancePlus = new SmartBinancePlus(owner, admin, address(dai), root);
+        address _drCat = address(smartBinancePlus.drCat());
+        vm.prank(owner);
+        IERC20(_drCat).approve(address(smartBinancePlus), 1e50);
     }
 
     function fundDai(address user) public {
@@ -50,7 +57,8 @@ contract Unit is Test {
     }
 
     function test_simpleRegister() public {
-        registerUser(user1, Binary, owner);
+        registerUser(user1, Binary, root);
+        assertEq(smartBinancePlus.drCat().balanceOf(user1), 500e18);
     }
 
     function test_registerReverts() public {
@@ -59,10 +67,10 @@ contract Unit is Test {
         vm.expectRevert("Referrer is not active");
         smartBinancePlus.register(Binary, user2);
 
-        smartBinancePlus.register(Binary, owner);
+        smartBinancePlus.register(Binary, root);
 
         vm.expectRevert("User is already active");
-        smartBinancePlus.register(Binary, owner);
+        smartBinancePlus.register(Binary, root);
 
         vm.expectRevert("User is already active");
         smartBinancePlus.register(Binary, user1);
@@ -70,12 +78,12 @@ contract Unit is Test {
     }
 
     function test_registerBinary() public {
-        registerUser(user1, Binary, owner);
+        registerUser(user1, Binary, root);
 
-        SmartBinancePlus.User memory uplineInfo = smartBinancePlus.getUser(owner);
+        SmartBinancePlus.User memory uplineInfo = smartBinancePlus.getUser(root);
         SmartBinancePlus.User memory userInfo = smartBinancePlus.getUser(user1);
 
-        assertEq(userInfo.referrer, owner);
+        assertEq(userInfo.referrer, root);
         assertTrue(userInfo.plan == Binary);
         assertEq(userInfo.totalEarnings, 0);
         assertEq(userInfo.directs, 0);
@@ -103,21 +111,21 @@ contract Unit is Test {
     }
 
     function test_points() public {
-        registerUser(user1, Binary, owner);
-        assertEq(smartBinancePlus.getUser(owner).balancePoints, 0);
-        registerUser(user2, Binary, owner);
-        assertEq(smartBinancePlus.getUser(owner).balancePoints, 1);
+        registerUser(user1, Binary, root);
+        assertEq(smartBinancePlus.getUser(root).balancePoints, 0);
+        registerUser(user2, Binary, root);
+        assertEq(smartBinancePlus.getUser(root).balancePoints, 1);
         registerUser(user3, Binary, user1);
-        assertEq(smartBinancePlus.getUser(owner).balancePoints, 1);
+        assertEq(smartBinancePlus.getUser(root).balancePoints, 1);
         assertEq(smartBinancePlus.getUser(user1).balancePoints, 0);
         registerUser(user4, Binary, user1);
-        assertEq(smartBinancePlus.getUser(owner).balancePoints, 1);
+        assertEq(smartBinancePlus.getUser(root).balancePoints, 1);
         assertEq(smartBinancePlus.getUser(user1).balancePoints, 1);
         registerUser(user5, Binary, user2);
-        assertEq(smartBinancePlus.getUser(owner).balancePoints, 2);
+        assertEq(smartBinancePlus.getUser(root).balancePoints, 2);
         assertEq(smartBinancePlus.getUser(user2).balancePoints, 0);
         registerUser(user6, Binary, user2);
-        assertEq(smartBinancePlus.getUser(owner).balancePoints, 3);
+        assertEq(smartBinancePlus.getUser(root).balancePoints, 3);
         assertEq(smartBinancePlus.getUser(user2).balancePoints, 1);
 
         assertEq(smartBinancePlus.totalCyclePoints(), 5);
@@ -125,8 +133,8 @@ contract Unit is Test {
     }
 
     function test_claimingRewards() public {
-        registerUser(user1, Binary, owner);
-        registerUser(user2, Binary, owner);
+        registerUser(user1, Binary, root);
+        registerUser(user2, Binary, root);
         registerUser(user3, Binary, user1);
         registerUser(user4, Binary, user1);
         registerUser(user5, Binary, user2);
@@ -137,7 +145,7 @@ contract Unit is Test {
         assertEq(smartBinancePlus.getPointWorth(), pointWorth);
 
         uint256 bal1Contract = dai.balanceOf(address(smartBinancePlus));
-        uint256 bal1owner = dai.balanceOf(owner);
+        uint256 bal1owner = dai.balanceOf(root);
         uint256 bal1user1 = dai.balanceOf(user1);
         uint256 bal1user2 = dai.balanceOf(user2);
         uint256 bal1user3 = dai.balanceOf(user3);
@@ -148,7 +156,7 @@ contract Unit is Test {
         smartBinancePlus.distributeRewards();
 
         uint256 bal2Contract = dai.balanceOf(address(smartBinancePlus));
-        uint256 bal2owner = dai.balanceOf(owner);
+        uint256 bal2owner = dai.balanceOf(root);
         uint256 bal2user1 = dai.balanceOf(user1);
         uint256 bal2user2 = dai.balanceOf(user2);
         uint256 bal2user3 = dai.balanceOf(user3);
@@ -167,29 +175,29 @@ contract Unit is Test {
     }
 
     function test_binaryMoreThan2Directs() public {
-        registerUser(user1, Binary, owner);
-        registerUser(user2, Binary, owner);
+        registerUser(user1, Binary, root);
+        registerUser(user2, Binary, root);
         registerUser(user3, Binary, user1);
         registerUser(user4, Binary, user1);
         registerUser(user5, Binary, user2);
-        registerUser(user6, Binary, owner);
+        registerUser(user6, Binary, root);
         assertEq(smartBinancePlus.getUser(user6).referrer, user2);
     }
 
     function test_binaryMoreThan2Directs2() public {
-        registerUser(user1, Binary, owner);
-        registerUser(user2, Binary, owner);
+        registerUser(user1, Binary, root);
+        registerUser(user2, Binary, root);
         registerUser(user3, Binary, user1);
         registerUser(user4, Binary, user1);
         registerUser(user5, Binary, user2);
         registerUser(user6, Binary, user2);
-        registerUser(user7, Binary, owner);
+        registerUser(user7, Binary, root);
         assertEq(smartBinancePlus.getUser(user7).referrer, user3);
     }
 
     function test_inOrderInvites() public {
-        registerUser(user1, Binary, owner);
-        registerUser(user2, Binary, owner);
+        registerUser(user1, Binary, root);
+        registerUser(user2, Binary, root);
         registerUser(user3, Binary, user1);
         // registerUser(user4, Binary, user1);
         registerUser(user5, Binary, user2);
@@ -202,8 +210,8 @@ contract Unit is Test {
     }
 
     function test_rewardTypes() public {
-        registerUser(user1, Binary, owner);
-        registerUser(user2, Binary, owner);
+        registerUser(user1, Binary, root);
+        registerUser(user2, Binary, root);
 
         registerUser(user3, InOrder, user1);
         fundDai(user4);
@@ -217,14 +225,14 @@ contract Unit is Test {
         registerUser(user7, InOrder, user3);
         registerUser(user8, InOrder, user3);
 
-        assertEq(smartBinancePlus.getUser(owner).balancePoints, 3);
+        assertEq(smartBinancePlus.getUser(root).balancePoints, 3);
         assertEq(smartBinancePlus.getUser(user1).balancePoints, 1);
         assertEq(smartBinancePlus.getUser(user2).balancePoints, 1);
         assertEq(smartBinancePlus.getUser(user3).balancePoints, 1);
 
         uint256 pointWorth = smartBinancePlus.getPointWorth();
 
-        uint256 bal1Owner = dai.balanceOf(owner);
+        uint256 bal1Owner = dai.balanceOf(root);
         uint256 bal1User1 = dai.balanceOf(user1);
         uint256 bal1User2 = dai.balanceOf(user2);
         uint256 bal1User3 = dai.balanceOf(user3);
@@ -232,7 +240,7 @@ contract Unit is Test {
         vm.warp(2 hours);
         smartBinancePlus.distributeRewards();
 
-        uint256 bal2Owner = dai.balanceOf(owner);
+        uint256 bal2Owner = dai.balanceOf(root);
         uint256 bal2User1 = dai.balanceOf(user1);
         uint256 bal2User2 = dai.balanceOf(user2);
         uint256 bal2User3 = dai.balanceOf(user3);
@@ -244,5 +252,80 @@ contract Unit is Test {
         uint256 share = remainings / 2;
         assertEq(bal2Owner - bal1Owner, (pointWorth * 3) + share);
         assertEq(bal2User2 - bal1User2, pointWorth + share);
+    }
+
+    function test_revertWithTwoInOrderDirect() public {
+        registerUser(user1, InOrder, root);
+        fundDai(user2);
+        vm.prank(user2);
+        vm.expectRevert("Referrer is in binary plan and has an in-order hand");
+        smartBinancePlus.register(InOrder, root);
+    }
+
+    function test_adminChangeCycle() public {
+        vm.warp(100 days);
+        // Owner requests change
+        vm.prank(owner);
+        smartBinancePlus.changeRewardCycle(2 hours);
+        // Admin confirms
+        vm.warp(block.timestamp + 10 minutes);
+        vm.prank(admin);
+        smartBinancePlus.changeRewardCycle(2 hours);
+        assertEq(smartBinancePlus.REWARD_CYCLE_DURATION(), 2 hours);
+    }
+
+    function test_adminChangeCycle_revertSameUser() public {
+        vm.warp(100 days);
+        vm.prank(owner);
+        smartBinancePlus.changeRewardCycle(2 hours);
+        vm.warp(block.timestamp + 10 minutes);
+        vm.prank(owner);
+        vm.expectRevert("Request should be accepted from other author");
+        smartBinancePlus.changeRewardCycle(2 hours);
+    }
+
+    function test_adminWithdrawEmergency() public {
+        vm.warp(100 days);
+        // Fund contract with DAI
+        fundDai(address(smartBinancePlus));
+        uint256 contractBal = dai.balanceOf(address(smartBinancePlus));
+        // Owner requests withdraw
+        vm.prank(owner);
+        smartBinancePlus.withdrawEmergancy();
+        // Admin confirms
+        vm.warp(block.timestamp + 10 minutes);
+        vm.prank(admin);
+        smartBinancePlus.withdrawEmergancy();
+        // All DAI should be sent to owner
+        assertEq(dai.balanceOf(owner), contractBal);
+        assertEq(dai.balanceOf(address(smartBinancePlus)), 0);
+    }
+
+    function test_adminWithdrawEmergency_revertSameUser() public {
+        vm.warp(100 days);
+        fundDai(address(smartBinancePlus));
+        vm.prank(owner);
+        smartBinancePlus.withdrawEmergancy();
+        vm.warp(block.timestamp + 10 minutes);
+        vm.prank(owner);
+        vm.expectRevert("Request should be accepted from other author");
+        smartBinancePlus.withdrawEmergancy();
+    }
+
+    function test_sendNewMessage() public {
+        string memory msg1 = "Hello, world!";
+        vm.prank(owner);
+        smartBinancePlus.sendNewMessage(msg1);
+        assertEq(smartBinancePlus.ownerMessage(), msg1);
+        string memory msg2 = "Another message";
+        vm.prank(owner);
+        smartBinancePlus.sendNewMessage(msg2);
+        assertEq(smartBinancePlus.ownerMessage(), msg2);
+    }
+
+    function test_ownerHasCatAccess() public {
+        address drCat = address(smartBinancePlus.drCat());
+        vm.prank(owner);
+        IERC20(drCat).transferFrom(drCat, owner, 5000e18);
     }
 }
