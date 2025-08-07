@@ -31,9 +31,6 @@ contract Unit is Test {
     function setUp() public {
         dai = new DAI(daiHolder, 1e30);
         smartBinancePlus = new SmartBinancePlus(owner, admin, address(dai), root);
-        address _drCat = address(smartBinancePlus.drCat());
-        vm.prank(owner);
-        IERC20(_drCat).approve(address(smartBinancePlus), 1e50);
     }
 
     function fundDai(address user) public {

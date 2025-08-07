@@ -4,7 +4,6 @@ pragma solidity 0.8.24;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {DrCat} from "./DrCat.sol";
-import {console} from "forge-std/console.sol";
 
 contract SmartBinancePlus is Ownable {
     enum Plan {
@@ -13,6 +12,7 @@ contract SmartBinancePlus is Ownable {
     }
 
     struct User {
+        address userAddress;
         address referrer;
         Plan plan;
         uint256 totalEarnings;
@@ -37,7 +37,7 @@ contract SmartBinancePlus is Ownable {
     uint256 public constant OWNER_SHARE = 10 ether;
     uint256 public constant POOL_SHARE = 90 ether;
 
-    uint256 public REWARD_CYCLE_DURATION = 1 hours;
+    uint256 public REWARD_CYCLE_DURATION = 5 minutes;
     address public immutable ROOT;
     IERC20 public dai;
     uint256 public contractStartTime;
@@ -47,6 +47,9 @@ contract SmartBinancePlus is Ownable {
 
     uint256 public cycleTimeChangeRequestTime; //@
     address public cycleTimeChangeRequester; //@
+    uint256 private requestedCycletime;
+    uint256 private minimumCycleTime = 1 minutes;//@
+    uint256 private maximumCycleTime = 10 minutes;//@
     uint256 public withdrawRequestTime;
     address public withdrawRequester;
 
@@ -61,17 +64,13 @@ contract SmartBinancePlus is Ownable {
         _;
     }
 
-    modifier onlyAdmin() {
-        require(msg.sender == admin, "Only admin can call this function");
-        _;
-    }
-
     constructor(address _initialOwner, address _initialAdmin, address _dai, address _root) Ownable(_initialOwner) {
         admin = _initialAdmin;
         dai = IERC20(_dai);
         ROOT = _root;
         contractStartTime = block.timestamp;
         userInfo[ROOT] = User({
+            userAddress: ROOT,
             referrer: address(0),
             plan: Plan.Binary,
             totalEarnings: 0,
@@ -83,7 +82,6 @@ contract SmartBinancePlus is Ownable {
             totalLeftVolume: 0,
             totalRightVolume: 0,
             balancePoints: 0,
-            // lastRewardCycle: 0,
             active: true
         });
         allUsers.push(ROOT);
@@ -93,14 +91,24 @@ contract SmartBinancePlus is Ownable {
 
     function changeRewardCycle(uint256 newCycle) external {
         require(msg.sender == owner() || msg.sender == admin, "Only owner or admin can call this function");
+        require(newCycle >= minimumCycleTime && newCycle <= maximumCycleTime, "New cycle should be greater than 0");
+        require(newCycle != REWARD_CYCLE_DURATION, "New cycle should be different from current cycle");
         if (cycleTimeChangeRequestTime + 1 hours > block.timestamp) {
             require(cycleTimeChangeRequester != msg.sender, "Request should be accepted from other author");
-            REWARD_CYCLE_DURATION = newCycle;
+            if (msg.sender == owner()) {
+                REWARD_CYCLE_DURATION = newCycle;
+            } else {
+                REWARD_CYCLE_DURATION = requestedCycletime;
+            }
             cycleTimeChangeRequester = address(0);
             cycleTimeChangeRequestTime = 0;
+            requestedCycletime = 0;
         } else {
             cycleTimeChangeRequester = msg.sender;
             cycleTimeChangeRequestTime = block.timestamp;
+            if (msg.sender == owner()) {
+                requestedCycletime = newCycle;
+            }
         }
     }
 
@@ -117,7 +125,7 @@ contract SmartBinancePlus is Ownable {
         }
     }
 
-    function sendNewMessage(string memory newMessage) external {
+    function sendNewMessage(string memory newMessage) external onlyOwner {
         ownerMessage = newMessage;
     }
 
@@ -141,6 +149,7 @@ contract SmartBinancePlus is Ownable {
         // Activate the user
         userInfo[msg.sender].active = true;
         userInfo[msg.sender].plan = plan;
+        userInfo[msg.sender].userAddress = msg.sender;
         allUsers.push(msg.sender);
         if (drCat.balanceOf(address(drCat)) >= 500e18) drCat.transferFrom(address(drCat), msg.sender, 500e18);
 
@@ -318,7 +327,6 @@ contract SmartBinancePlus is Ownable {
         uint256 numPureBinary = pureBinaryUsers.length;
         if (remainingAmounts > 0 && numPureBinary > 0) {
             uint256 share = remainingAmounts / numPureBinary;
-            console.log(share);
             for (uint256 i = 0; i < numPureBinary; i++) {
                 address userAddr = pureBinaryUsers[i];
                 if (userInfo[userAddr].active) {
@@ -334,6 +342,14 @@ contract SmartBinancePlus is Ownable {
 
     function getUser(address user) public view returns (User memory) {
         return userInfo[user];
+    }
+
+    function fetchAllUsers() public view returns (User[] memory) {
+        User[] memory users = new User[](allUsers.length);
+        for (uint256 i = 0; i < allUsers.length; i++) {
+            users[i] = (userInfo[allUsers[i]]);
+        }
+        return users;
     }
 
     function getPointWorth() public view returns (uint256) {
