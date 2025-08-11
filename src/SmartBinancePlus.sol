@@ -48,8 +48,8 @@ contract SmartBinancePlus is Ownable {
     uint256 public cycleTimeChangeRequestTime; //@
     address public cycleTimeChangeRequester; //@
     uint256 private requestedCycletime;
-    uint256 private minimumCycleTime = 1 minutes;//@
-    uint256 private maximumCycleTime = 10 minutes;//@
+    uint256 private minimumCycleTime = 1 minutes; //@
+    uint256 private maximumCycleTime = 10 minutes; //@
     uint256 public withdrawRequestTime;
     address public withdrawRequester;
 
@@ -135,7 +135,7 @@ contract SmartBinancePlus is Ownable {
         totalCyclePoolAmount += POOL_SHARE;
 
         if (userInfo[referrer].plan == Plan.Binary) {
-            if (userInfo[referrer].left != address(0) && userInfo[userInfo[referrer].left].plan == Plan.InOrder) {
+            if (userInfo[referrer].directs == 1 && userInfo[userInfo[referrer].left].plan == Plan.InOrder) {
                 require(plan == Plan.Binary, "Referrer is in binary plan and has an in-order hand");
             }
             _connectToBinaryReferrer(referrer);
